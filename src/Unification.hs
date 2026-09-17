@@ -144,8 +144,10 @@ unify l t u = case (force t, force u) of
   (VFlex m sp, VFlex m' sp') | m == m' -> unifySp l sp sp'
   (VFlex m sp, t') -> trySolve l m sp t'
   (t, VFlex m' sp') -> trySolve l m' sp' t
-  -- TODO: Could probably do something smarter here...
-  -- (VChoice c tl tr, VChoice c' tl' tr') = error "TODO"
+  -- TODO: Could maybe do something smarter here...
+  -- > (VChoice c tl tr, VChoice c' tl' tr') = error "TODO"
+  -- Invariant: If we see a choice after "forcing", the choice variable must be
+  -- undetermined ('B')
   (VChoice c tl tr, t')
     | antiUnifies l tl t' && antiUnifies l tr t'
     -> mismatch
