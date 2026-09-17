@@ -103,7 +103,7 @@ instance Applicative PureUnify where
   Conv f <*> x = f <$> x
   -- TODO: We might be able to have
   -- > _ <*> Anti = Anti
-  -- it's not clear to me exactly when this save
+  -- it's not clear to me exactly when this safe
   Stuck  <*> _ = Stuck
   Anti   <*> _ = Anti
 
