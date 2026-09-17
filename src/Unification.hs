@@ -85,13 +85,52 @@ solve gamma m sp rhs = do
   let solution = eval [] $ lams pren.dom rhs
   writeMeta m solution
 
-unifySp :: Lvl -> Sp -> Sp -> IO ()
+class Monad m => UnifyMonad m where
+  trySolve  :: Lvl -> MetaVar -> Sp -> Val -> m ()
+  tryRefine :: ChoiceVar -> ChoiceEntry -> m ()
+  mismatch :: m ()
+
+instance UnifyMonad IO where
+  trySolve = solve
+  tryRefine = writeChoice
+  mismatch = throwIO UnifyError -- rigid mismatch error
+
+data PureUnify a = Conv a | Stuck | Anti
+  deriving stock Functor
+
+instance Applicative PureUnify where
+  pure = Conv
+  Conv f <*> x = f <$> x
+  -- TODO: We might be able to have
+  -- > _ <*> Anti = Anti
+  -- it's not clear to me exactly when this save
+  Stuck  <*> _ = Stuck
+  Anti   <*> _ = Anti
+
+instance Monad PureUnify where
+  Conv x >>= f = f x
+  Stuck  >>= _ = Stuck
+  Anti   >>= _ = Anti
+
+instance UnifyMonad PureUnify where
+  trySolve _ _ _ _ = Stuck
+  tryRefine _ _    = Stuck
+  mismatch         = Anti
+
+isAnti :: PureUnify a -> Bool
+isAnti Anti = True
+isAnti _    = False
+
+antiUnifies :: Lvl -> Val -> Val -> Bool
+antiUnifies l v1 v2 = isAnti $ unify l v1 v2
+
+unifySp :: UnifyMonad m => Lvl -> Sp -> Sp -> m ()
 unifySp l sp sp' = case (sp, sp') of
   ([], []) -> pure ()
   (sp :> t, sp' :> t') -> unifySp l sp sp' >> unify l t t'
-  _ -> throwIO UnifyError -- rigid mismatch error
+  _ -> mismatch -- rigid mismatch error
 
-unify :: Lvl -> Val -> Val -> IO ()
+unify :: UnifyMonad m => Lvl -> Val -> Val -> m ()
 unify l t u = case (force t, force u) of
   (VLam _ t, VLam _ t') -> unify (l + 1) (t $ VVar l) (t' $ VVar l)
   (t, VLam _ t') -> unify (l + 1) (t $$ VVar l) (t' $ VVar l)
@@ -100,9 +139,15 @@ unify l t u = case (force t, force u) of
   (VPi _ a b, VPi _ a' b') -> unify l a a' >> unify (l + 1) (b $ VVar l) (b' $ VVar l)
   (VRigid x sp, VRigid x' sp') | x == x' -> unifySp l sp sp'
   (VFlex m sp, VFlex m' sp') | m == m' -> unifySp l sp sp'
-  (VFlex m sp, t') -> solve l m sp t'
-  (t, VFlex m' sp') -> solve l m' sp' t
-  (VChoice c tl tr, VChoice c' tl' tr') -> error "TODO"
-  (VChoice c tl tr, t') -> error "TODO"
-  (t, VChoice c tl' tr') -> error "TODO"
-  _ -> throwIO UnifyError -- rigid mismatch error
+  (VFlex m sp, t') -> trySolve l m sp t'
+  (t, VFlex m' sp') -> trySolve l m' sp' t
+  -- TODO: Could probably do something smarter here...
+  -- (VChoice c tl tr, VChoice c' tl' tr') = error "TODO"
+  (VChoice c tl tr, t')
+    | antiUnifies l tl t'
+    -> tryRefine c R >> unify l tr t'
+  (VChoice c tl tr, t')
+    | antiUnifies l tr t'
+    -> tryRefine c L >> unify l tl t'
+  (t, VChoice c tl' tr') -> unify l (VChoice c tl' tr') t
+  _ -> mismatch

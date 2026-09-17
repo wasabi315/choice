@@ -8,6 +8,7 @@ module Metacontext
     newChoice,
     readChoice,
     lookupChoice,
+    writeChoice,
     reset,
   )
 where
@@ -68,7 +69,7 @@ newChoice :: IO ChoiceVar
 newChoice = do
   m <- readIORef nextChoiceVar
   writeIORef nextChoiceVar $! m + 1
-  modifyIORef metaCtx $ IM.insert (coerce m) Unsolved
+  modifyIORef choiceCtx $ IM.insert (coerce m) B
   pure m
 
 readChoice :: ChoiceVar -> IO ChoiceEntry
@@ -80,6 +81,9 @@ readChoice c = do
 
 lookupChoice :: ChoiceVar -> ChoiceEntry
 lookupChoice = unsafeDupablePerformIO . readChoice
+
+writeChoice :: ChoiceVar -> ChoiceEntry -> IO ()
+writeChoice m sol = modifyIORef' choiceCtx $ IM.insert (coerce m) sol
 
 --------------------------------------------------------------------------------
 
