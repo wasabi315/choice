@@ -146,16 +146,14 @@ unify l t u = case (force t, force u) of
   (t, VFlex m' sp') -> trySolve l m' sp' t
   -- TODO: Could probably do something smarter here...
   -- (VChoice c tl tr, VChoice c' tl' tr') = error "TODO"
-  (VChoice _ tl tr, t')
+  (VChoice c tl tr, t')
     | antiUnifies l tl t' && antiUnifies l tr t'
     -> mismatch
-  (VChoice c tl tr, t')
     | antiUnifies l tl t'
     -> tryRefine c R >> unify l tr t'
-  (VChoice c tl tr, t')
     | antiUnifies l tr t'
     -> tryRefine c L >> unify l tl t'
-  (VChoice {}, _)
+    | otherwise
     -> stuck -- We cannot make progress (ideally would postpone)
   (t, VChoice c tl' tr') -> unify l (VChoice c tl' tr') t
   _ -> mismatch
