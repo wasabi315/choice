@@ -9,6 +9,8 @@ f : (b : Bool) → if b then (ℕ → ℕ) else ℕ
 f (true |₀ false) : (ℕ → ℕ) |₀ ℕ
 ```
 
+We'd need to handle heterogeneous unification problem...
+
 ## Problem cases
 
 Standard unification
