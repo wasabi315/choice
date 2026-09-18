@@ -25,9 +25,9 @@ vMeta m = case lookupMeta m of
 
 vChoice :: ChoiceVar -> Val -> Val -> Val
 vChoice c ~tl ~tr = case lookupChoice c of
-  L -> tl
-  R -> tr
-  B -> VChoice c tl tr
+  CSolved L -> tl
+  CSolved R -> tr
+  CUnsolved {} -> VChoice c tl tr
 
 ($$) :: Val -> Val -> Val
 t $$ ~u = case t of
@@ -58,8 +58,10 @@ idSp l = idSp (l - 1) :> VVar (l - 1)
 force :: Val -> Val
 force = \case
   VFlex m sp | Solved t <- lookupMeta m -> force (vAppSp t sp)
-  VChoice c tl _ | L <- lookupChoice c -> force tl
-  VChoice c _ tr | R <- lookupChoice c -> force tr
+  VChoice c tl tr | CSolved lr <- lookupChoice c ->
+    case lr of
+      L -> force tl
+      R -> force tr
   t -> t
 
 --------------------------------------------------------------------------------

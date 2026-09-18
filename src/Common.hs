@@ -1,10 +1,18 @@
 module Common
   ( module Common,
+    module Control.Applicative,
+    module Control.Monad,
+    module Data.Foldable,
+    module Data.Traversable,
     module Data.Coerce,
   )
 where
 
+import Control.Applicative
+import Control.Monad
 import Data.Coerce
+import Data.Foldable
+import Data.Traversable
 
 --------------------------------------------------------------------------------
 
