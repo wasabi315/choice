@@ -17,7 +17,7 @@ m : ℕ, n : ℕ ⊢ (?0 m m n n ≟ (m ≤ n)) ∧ (?0 m n n m ≟ (m ≤ n))
 
 This has the unique solution `?0 ≔ λ m _ n _ → m ≤ n`, but each of its subproblems has four distinct solutions.
 
-The problem is clearly outside the pattern fragment. Pruning can't handle this situation either, because it can only prune non-linear vars that don't occur on the RHS. We also can't postpone these, since there are no other subproblems. We could of course use backtracking, but that may be expensive.
+The problem is clearly outside the pattern fragment. Pruning can't handle this situation either, because it can only prune vars that don't occur on the RHS. We also can't postpone these, since there are no other subproblems. We could of course use backtracking, but that may be expensive.
 
 The idea is that, when solving the first subproblem, we represent the alternatives using the choice operators:
 
