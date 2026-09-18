@@ -23,24 +23,34 @@ data PartialRenaming = PRen
     -- | size of Δ
     cod :: Lvl,
     -- | mapping from Δ vars to Γ vars
-    ren :: IM.IntMap Lvl
+    ren :: IM.IntMap PRenEntry
   }
+  deriving stock (Show)
+
+data PRenEntry
+  = EVar Lvl
+  | EChoice ChoiceVar PRenEntry PRenEntry
+  deriving stock (Show)
 
 -- | Lifting a partial renaming over an extra bound variable.
 --   Given (σ : PRen Γ Δ), (lift σ : PRen (Γ, x : A[σ]) (Δ, x : A))
 lift :: PartialRenaming -> PartialRenaming
 lift (PRen dom cod ren) =
-  PRen (dom + 1) (cod + 1) (IM.insert (coerce cod) dom ren)
+  PRen (dom + 1) (cod + 1) (IM.insert (coerce cod) (EVar dom) ren)
 
 -- | @invert : (Γ : Cxt) → (spine : Sub Γ Δ) → PRen Δ Γ@
 invert :: Lvl -> Sp -> IO PartialRenaming
 invert gamma sp = do
-  let go :: Sp -> IO (Lvl, IM.IntMap Lvl)
+  let go :: Sp -> IO (Lvl, IM.IntMap PRenEntry)
       go [] = pure (0, mempty)
       go (sp :> t) = do
         (dom, ren) <- go sp
         case force t of
-          VVar (Lvl x) | IM.notMember x ren -> pure (dom + 1, IM.insert x dom ren)
+          VVar (Lvl x)
+            | IM.member x ren -> do
+                c <- newChoice
+                pure (dom + 1, IM.adjust (flip (EChoice c) (EVar dom)) x ren)
+            | otherwise -> pure (dom + 1, IM.insert x (EVar dom) ren)
           -- choice can't be inverted
           _ -> throwIO UnifyError
 
@@ -55,6 +65,10 @@ rename m pren v = go pren v
     goSp _ t [] = pure t
     goSp pren t (sp :> u) = App <$> goSp pren t sp <*> go pren u
 
+    goEntry :: PartialRenaming -> PRenEntry -> Tm
+    goEntry pren (EVar x) = Var $ lvl2Ix pren.dom x
+    goEntry pren (EChoice c xs ys) = Choice c (goEntry pren xs) (goEntry pren ys)
+
     go :: PartialRenaming -> Val -> IO Tm
     go pren t = case force t of
       VFlex m' sp
@@ -62,15 +76,13 @@ rename m pren v = go pren v
         | otherwise -> goSp pren (Meta m') sp
       VRigid (Lvl x) sp -> case IM.lookup x pren.ren of
         Nothing -> throwIO UnifyError -- scope error ("escaping variable" error)
-        Just x' -> goSp pren (Var $ lvl2Ix pren.dom x') sp
+        Just xs -> goSp pren (goEntry pren xs) sp
       VLam x t -> Lam x <$> go (lift pren) (t $ VVar pren.cod)
       VPi x a b -> Pi x <$> go pren a <*> go (lift pren) (b $ VVar pren.cod)
       VU -> pure U
       VChoice c t u -> Choice c <$> go pren t <*> go pren u
 
-{-
-Wrap a term in lambdas.
--}
+-- Wrap a term in lambdas.
 lams :: Lvl -> Tm -> Tm
 lams l = go 0
   where
