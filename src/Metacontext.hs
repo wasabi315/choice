@@ -68,7 +68,7 @@ newChoice :: IO ChoiceVar
 newChoice = do
   m <- readIORef nextChoiceVar
   writeIORef nextChoiceVar $! m + 1
-  modifyIORef metaCtx $ IM.insert (coerce m) Unsolved
+  modifyIORef choiceCtx $ IM.insert (coerce m) B
   pure m
 
 readChoice :: ChoiceVar -> IO ChoiceEntry
