@@ -48,7 +48,7 @@ invert gamma sp = do
         case force t of
           VVar (Lvl x)
             | IM.member x ren -> do
-                c <- newChoice
+                c <- newChoice [] [] -- choice var that doesn't constrain other choice vars
                 pure (dom + 1, IM.adjust (flip (EChoice c) (EVar dom)) x ren)
             | otherwise -> pure (dom + 1, IM.insert x (EVar dom) ren)
           -- choice can't be inverted

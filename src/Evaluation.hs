@@ -26,9 +26,9 @@ vMeta m = case lookupMeta m of
 
 vChoice :: ChoiceVar -> Val -> Val -> Val
 vChoice c ~tl ~tr = case lookupChoice c of
-  L -> tl
-  R -> tr
-  B -> VChoice c tl tr
+  CSolved L -> tl
+  CSolved R -> tr
+  CUnsolved {} -> VChoice c tl tr
 
 -- | Types can be meta-headed, but never flexibly coerced
 assertFHMeta :: FlexHead -> a -> a
@@ -96,8 +96,10 @@ forceFH (FHCoe a bsp t) b = vCoe a (vAppSp b bsp) t
 force :: Val -> Val
 force = \case
   VFlex m h sp | Solved t <- lookupMeta m -> vAppSp (forceFH h t) sp
-  VChoice c tl _ | L <- lookupChoice c -> force tl
-  VChoice c _ tr | R <- lookupChoice c -> force tr
+  VChoice c tl tr | CSolved lr <- lookupChoice c ->
+    case lr of
+      L -> force tl
+      R -> force tr
   t -> t
 
 --------------------------------------------------------------------------------

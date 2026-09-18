@@ -5,9 +5,11 @@ module Metacontext
     lookupMeta,
     writeMeta,
     ChoiceEntry (..),
+    LR (..),
     newChoice,
     readChoice,
     lookupChoice,
+    writeChoice,
     reset,
   )
 where
@@ -36,7 +38,7 @@ newMeta :: IO MetaVar
 newMeta = do
   m <- readIORef nextMetaVar
   writeIORef nextMetaVar $! m + 1
-  modifyIORef metaCtx $ IM.insert (coerce m) Unsolved
+  modifyIORef' metaCtx $ IM.insert (coerce m) Unsolved
   pure m
 
 readMeta :: MetaVar -> IO MetaEntry
@@ -54,7 +56,13 @@ writeMeta m sol = modifyIORef' metaCtx $ IM.insert (coerce m) (Solved sol)
 
 --------------------------------------------------------------------------------
 
-data ChoiceEntry = B | L | R
+data LR = L | R
+  deriving stock (Show)
+
+data ChoiceEntry
+  = CUnsolved [(ChoiceVar, LR)] [(ChoiceVar, LR)]
+  | CSolved LR
+  deriving stock (Show)
 
 nextChoiceVar :: IORef ChoiceVar
 nextChoiceVar = unsafeDupablePerformIO (newIORef 0)
@@ -64,11 +72,11 @@ choiceCtx :: IORef (IM.IntMap ChoiceEntry)
 choiceCtx = unsafeDupablePerformIO (newIORef mempty)
 {-# NOINLINE choiceCtx #-}
 
-newChoice :: IO ChoiceVar
-newChoice = do
+newChoice :: [(ChoiceVar, LR)] -> [(ChoiceVar, LR)] -> IO ChoiceVar
+newChoice constrL constrR = do
   m <- readIORef nextChoiceVar
   writeIORef nextChoiceVar $! m + 1
-  modifyIORef choiceCtx $ IM.insert (coerce m) B
+  modifyIORef choiceCtx $ IM.insert (coerce m) (CUnsolved constrL constrR)
   pure m
 
 readChoice :: ChoiceVar -> IO ChoiceEntry
@@ -80,6 +88,17 @@ readChoice c = do
 
 lookupChoice :: ChoiceVar -> ChoiceEntry
 lookupChoice = unsafeDupablePerformIO . readChoice
+
+writeChoice :: ChoiceVar -> LR -> IO ()
+writeChoice c lr = do
+  cs <- readIORef choiceCtx
+  case IM.lookup (coerce c) cs of
+    Just (CUnsolved constrL constrR) -> do
+      modifyIORef' choiceCtx $ IM.insert (coerce c) (CSolved lr)
+      case lr of
+        L -> traverse_ (uncurry writeChoice) constrL
+        R -> traverse_ (uncurry writeChoice) constrR
+    Nothing; Just (CSolved {}) -> error "impossible"
 
 --------------------------------------------------------------------------------
 
