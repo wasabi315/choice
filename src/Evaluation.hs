@@ -28,11 +28,11 @@ vChoice :: ChoiceVar -> Val -> Val -> Val
 vChoice c ~tl ~tr = case lookupChoice c of
   L -> tl
   R -> tr
-  B -> pushChoice c tl tr
+  B -> VChoice c tl tr
 
 -- | Types can be meta-headed, but never flexibly coerced
 assertFHMeta :: FlexHead -> a -> a
-assertFHMeta FHMeta     c = c
+assertFHMeta FHMeta c = c
 assertFHMeta (FHCoe {}) _ = error "impossible"
 
 vCoe :: VTy -> VTy -> Val -> Val
@@ -41,7 +41,7 @@ vCoe a b t = case t of
     (VPi _ a1 a2, VPi _ b1 b2) -> VLam x \u ->
       vCoe (a2 $ vCoe b1 a1 u) (b2 u) (t' $ vCoe b1 a1 u)
     (VPi {}, VFlex bm bh bsp) -> assertFHMeta bh $ VCoe a bm bsp t
-    _                         -> VErr
+    _ -> VErr
   VChoice c l r -> VChoice c (vCoe a b l) (vCoe a b r)
   -- TODO: Coercions should compute on reflexivity
   -- This requires threading a |Lvl| through |eval| and calling into a
@@ -49,31 +49,30 @@ vCoe a b t = case t of
   -- For now, coercions are just handled lazily in unification, but
   -- https://andraskovacs.github.io/pdfs/wits26prez.pdf
   -- says this might be bad for term size...
-  VRigid h sp   -> VRigid h (sp :> SCoe a b)
-  VFlex  m h sp -> VFlex m h (sp :> SCoe a b)
+  VRigid h sp -> VRigid h (sp :> SCoe a b)
+  VFlex m h sp -> VFlex m h (sp :> SCoe a b)
   VPi {} -> case b of
-    VU              -> t
+    VU -> t
     VFlex bm bh bsp -> assertFHMeta bh $ VCoe a bm bsp t
-    _               -> VErr
+    _ -> VErr
   VU -> case b of
-    VU              -> t
+    VU -> t
     VFlex bm bh bsp -> assertFHMeta bh $ VCoe a bm bsp t
-    _               -> VErr
-
+    _ -> VErr
   VErr -> VErr
 
 ($$) :: Val -> Val -> Val
 t $$ ~u = case t of
-  VLam _ f        -> f u
-  VRigid x sp     -> VRigid x (sp :> SApp u)
-  VFlex m h sp    -> VFlex m h (sp :> SApp u)
+  VLam _ f -> f u
+  VRigid x sp -> VRigid x (sp :> SApp u)
+  VFlex m h sp -> VFlex m h (sp :> SApp u)
   VChoice c tl tr -> VChoice c (tl $$ u) (tr $$ u)
-  VU; VPi {}      -> error "impossible"
-  VErr            -> VErr
+  VU; VPi {} -> error "impossible"
+  VErr -> VErr
 
 vAppSp :: Val -> Sp -> Val
 vAppSp t [] = t
-vAppSp t (sp :> SApp u)   = vAppSp t sp $$ u
+vAppSp t (sp :> SApp u) = vAppSp t sp $$ u
 vAppSp t (sp :> SCoe a b) = vCoe a b $ vAppSp t sp
 
 vInsertedMeta :: MetaVar -> Lvl -> Val
@@ -91,34 +90,20 @@ idSp l = idSp (l - 1) :> SApp (VVar $ l - 1)
 --------------------------------------------------------------------------------
 
 forceFH :: FlexHead -> Val -> Val
-forceFH FHMeta          t = t
+forceFH FHMeta t = t
 forceFH (FHCoe a bsp t) b = vCoe a (vAppSp b bsp) t
 
 force :: Val -> Val
 force = \case
-  VFlex m h sp | Solved t <- lookupMeta m
-    -> vAppSp (forceFH h t) sp
-  VChoice c tl tr -> case lookupChoice c of
-    L -> tl
-    R -> tr
-    B -> pushChoice c tl tr
+  VFlex m h sp | Solved t <- lookupMeta m -> vAppSp (forceFH h t) sp
+  VChoice c tl _ | L <- lookupChoice c -> force tl
+  VChoice c _ tr | R <- lookupChoice c -> force tr
   t -> t
-
--- assumes c is an unsolved choicevar
-pushChoice :: ChoiceVar -> Val -> Val -> Val
-pushChoice c t t' = case (force t, force t') of
-  (VLam x t, VLam x' t') -> VLam (NChoice c x x') \v -> VChoice c (t v) (t' v)
-  (VLam x t, t') -> VLam x \v -> VChoice c (t v) (t' $$ v)
-  (t, VLam x' t') -> VLam x' \v -> VChoice c (t $$ v) (t' v)
-  (VU, VU) -> VU
-  (VPi x a b, VPi x' a' b') -> VPi (NChoice c x x') (VChoice c a a') \ ~v -> VChoice c (b v) (b' v)
-  -- TODO: How should we handle nested choice here?
-  (t, t') -> VChoice c t t'
 
 --------------------------------------------------------------------------------
 
 quoteFH :: Lvl -> FlexHead -> Tm -> Tm
-quoteFH _ FHMeta t          = t
+quoteFH _ FHMeta t = t
 quoteFH l (FHCoe a bsp t) b = Coe (quote l a) (quoteSp l b bsp) (quote l t)
 
 quote :: Lvl -> Val -> Tm
@@ -132,8 +117,8 @@ quote l t = case force t of
   VErr -> error "impossible"
 
 quoteSp :: Lvl -> Tm -> Sp -> Tm
-quoteSp _ h []               = h
-quoteSp l h (sp :> SApp u)   = App (quoteSp l h sp) (quote l u)
+quoteSp _ h [] = h
+quoteSp l h (sp :> SApp u) = App (quoteSp l h sp) (quote l u)
 quoteSp l h (sp :> SCoe a b) = Coe (quote l a) (quote l b) (quoteSp l h sp)
 
 nf :: Env -> Tm -> Tm
