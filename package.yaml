@@ -61,6 +61,27 @@ ghc-options:
   - -funbox-strict-fields
   - -optP-Wno-nonportable-include-path
 
+flags:
+  dump:
+    description: dump core
+    default: true
+    manual: false
+  llvm:
+    description: use llvm for codegen
+    default: false
+    manual: true
+
+when:
+  - condition: flag(dump)
+    ghc-options:
+      - -ddump-simpl
+      - -dsuppress-all
+      - -dno-suppress-type-signatures
+      - -ddump-to-file
+  - condition: flag(llvm)
+    ghc-options:
+      - -fllvm
+
 library:
   source-dirs: src
 

@@ -22,6 +22,16 @@ source-repository head
   type: git
   location: https://github.com/wasabi315/choice
 
+flag dump
+  description: dump core
+  manual: False
+  default: True
+
+flag llvm
+  description: use llvm for codegen
+  manual: True
+  default: False
+
 library
   exposed-modules:
       Common
@@ -61,6 +71,10 @@ library
       base >=4.7 && <5
     , containers
   default-language: GHC2024
+  if flag(dump)
+    ghc-options: -ddump-simpl -dsuppress-all -dno-suppress-type-signatures -ddump-to-file
+  if flag(llvm)
+    ghc-options: -fllvm
 
 executable choice
   main-is: Main.hs
@@ -96,3 +110,7 @@ executable choice
     , choice
     , containers
   default-language: GHC2024
+  if flag(dump)
+    ghc-options: -ddump-simpl -dsuppress-all -dno-suppress-type-signatures -ddump-to-file
+  if flag(llvm)
+    ghc-options: -fllvm
