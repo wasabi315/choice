@@ -24,8 +24,8 @@ source-repository head
 
 flag dump
   description: dump core
-  manual: False
-  default: True
+  manual: True
+  default: False
 
 flag llvm
   description: use llvm for codegen

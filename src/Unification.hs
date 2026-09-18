@@ -23,24 +23,34 @@ data PartialRenaming = PRen
     -- | size of Δ
     cod :: Lvl,
     -- | mapping from Δ vars to Γ vars
-    ren :: IM.IntMap Lvl
+    ren :: IM.IntMap PRenEntry
   }
+  deriving stock (Show)
+
+data PRenEntry
+  = EVar Lvl
+  | EChoice ChoiceVar PRenEntry PRenEntry
+  deriving stock (Show)
 
 -- | Lifting a partial renaming over an extra bound variable.
 --   Given (σ : PRen Γ Δ), (lift σ : PRen (Γ, x : A[σ]) (Δ, x : A))
 lift :: PartialRenaming -> PartialRenaming
 lift (PRen dom cod ren) =
-  PRen (dom + 1) (cod + 1) (IM.insert (coerce cod) dom ren)
+  PRen (dom + 1) (cod + 1) (IM.insert (coerce cod) (EVar dom) ren)
 
 -- | @invert : (Γ : Cxt) → (spine : Sub Γ Δ) → PRen Δ Γ@
 invert :: Lvl -> Sp -> IO PartialRenaming
 invert gamma sp = do
-  let go :: Sp -> IO (Lvl, IM.IntMap Lvl)
+  let go :: Sp -> IO (Lvl, IM.IntMap PRenEntry)
       go [] = pure (0, mempty)
       go (sp :> SApp t) = do
         (dom, ren) <- go sp
         case force t of
-          VVar (Lvl x) | IM.notMember x ren -> pure (dom + 1, IM.insert x dom ren)
+          VVar (Lvl x)
+            | IM.member x ren -> do
+                c <- newChoice
+                pure (dom + 1, IM.adjust (flip (EChoice c) (EVar dom)) x ren)
+            | otherwise -> pure (dom + 1, IM.insert x (EVar dom) ren)
           -- choice can't be inverted
           _ -> throwIO $ UnifyError "Tried to invert non-variable application"
       -- TODO: Inverting non-reflexive coercions?
@@ -53,10 +63,10 @@ invert gamma sp = do
 
 -- Filter reflexive coercions
 forceSp :: Lvl -> Sp -> Sp
-forceSp l (sp :> SApp t)   = forceSp l sp :> SApp t
+forceSp l (sp :> SApp t) = forceSp l sp :> SApp t
 forceSp l (sp :> SCoe a b)
   | pureConv l a b = forceSp l sp
-  | otherwise      = forceSp l sp :> SCoe a b
+  | otherwise = forceSp l sp :> SCoe a b
 forceSp _ [] = []
 
 -- | Perform the partial renaming on rhs, while also checking for "m" occurrences.
@@ -73,9 +83,13 @@ rename m pren v = go pren v
       Coe <$> go pren a <*> go pren b <*> goSp pren t sp
 
     goFH :: PartialRenaming -> FlexHead -> Tm -> IO Tm
-    goFH _ FHMeta             t = pure t
+    goFH _ FHMeta t = pure t
     goFH pren (FHCoe a bsp t) b =
       Coe <$> go pren a <*> goSp pren b bsp <*> go pren t
+
+    goEntry :: PartialRenaming -> PRenEntry -> Tm
+    goEntry pren (EVar x) = Var $ lvl2Ix pren.dom x
+    goEntry pren (EChoice c xs ys) = Choice c (goEntry pren xs) (goEntry pren ys)
 
     go :: PartialRenaming -> Val -> IO Tm
     go pren t = case force t of
@@ -83,21 +97,19 @@ rename m pren v = go pren v
         -- occurs check
         | m == m' -> throwIO $ UnifyError "Occurs fail"
         | otherwise -> do
-          t' <- goFH pren h $ Meta m'
-          goSp pren t' sp
+            t' <- goFH pren h $ Meta m'
+            goSp pren t' sp
       VRigid (Lvl x) sp -> case IM.lookup x pren.ren of
         -- ("escaping variable" error)
         Nothing -> throwIO $ UnifyError "Scope error"
-        Just x' -> goSp pren (Var $ lvl2Ix pren.dom x') sp
+        Just xs -> goSp pren (goEntry pren xs) sp
       VLam x t -> Lam x <$> go (lift pren) (t $ VVar pren.cod)
       VPi x a b -> Pi x <$> go pren a <*> go (lift pren) (b $ VVar pren.cod)
       VU -> pure U
       VChoice c t u -> Choice c <$> go pren t <*> go pren u
       VErr -> error "impossible"
 
-{-
-Wrap a term in lambdas.
--}
+-- Wrap a term in lambdas.
 lams :: Lvl -> Tm -> Tm
 lams l = go 0
   where
@@ -112,32 +124,35 @@ solve gamma m sp rhs = do
   let solution = eval [] $ lams pren.dom rhs
   writeMeta m solution
 
-class Monad m => UnifyMonad m where
-  trySolve  :: Lvl -> MetaVar -> Sp -> Val -> m ()
+class (Monad m) => UnifyMonad m where
+  trySolve :: Lvl -> MetaVar -> Sp -> Val -> m ()
+
   -- Right-now distinguishing 'stuck' and 'mismatch' doesn't really matter but
   -- I think it is good to be disciplined here
-  stuck     :: String -> m ()
-  mismatch  :: String -> m ()
+  stuck :: String -> m ()
+  mismatch :: String -> m ()
 
 instance UnifyMonad IO where
   trySolve = solve
+
   -- meta we couldn't solve
   stuck s = throwIO $ UnifyError s
+
   -- rigid mismatch error
   mismatch s = throwIO $ UnifyError s
 
 data PureUnify a = Conv a | Stuck | Mismatch
-  deriving stock Functor
+  deriving stock (Functor)
 
 instance Applicative PureUnify where
   pure = Conv
-  Conv f   <*> x = f <$> x
-  Stuck    <*> _ = Stuck
+  Conv f <*> x = f <$> x
+  Stuck <*> _ = Stuck
   Mismatch <*> _ = Mismatch
 
 instance Monad PureUnify where
-  Conv x   >>= f = f x
-  Stuck    >>= _ = Stuck
+  Conv x >>= f = f x
+  Stuck >>= _ = Stuck
   Mismatch >>= _ = Mismatch
 
 instance UnifyMonad PureUnify where
@@ -147,13 +162,13 @@ instance UnifyMonad PureUnify where
 
 isConv :: PureUnify a -> Bool
 isConv (Conv _) = True
-isConv Stuck    = False
+isConv Stuck = False
 isConv Mismatch = False
 
 pureConv :: Lvl -> Val -> Val -> Bool
 pureConv l t u = isConv $ unify l t u
 
-unifySp :: UnifyMonad m => Lvl -> Sp -> Sp -> m ()
+unifySp :: (UnifyMonad m) => Lvl -> Sp -> Sp -> m ()
 unifySp l sp sp' = case (sp, sp') of
   ([], []) -> pure ()
   (sp :> SApp t, sp' :> SApp t') -> unifySp l sp sp' >> unify l t t'
@@ -165,7 +180,7 @@ unifySp l sp sp' = case (sp, sp') of
     | otherwise -> stuck "Tried to unify non-reflexive coercion"
   _ -> mismatch "Tried to unify spines of different length"
 
-unify :: UnifyMonad m => Lvl -> Val -> Val -> m ()
+unify :: (UnifyMonad m) => Lvl -> Val -> Val -> m ()
 unify l t u = case (force t, force u) of
   -- Error values always throw mismatch errors
   (VErr, _) -> mismatch "Ill-typed coercion"

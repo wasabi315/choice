@@ -64,8 +64,8 @@ ghc-options:
 flags:
   dump:
     description: dump core
-    default: true
-    manual: false
+    default: false
+    manual: true
   llvm:
     description: use llvm for codegen
     default: false
