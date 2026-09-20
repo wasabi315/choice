@@ -42,7 +42,7 @@ invert gamma sp = do
         case force t of
           VVar (Lvl x) | IM.notMember x ren -> pure (dom + 1, IM.insert x dom ren)
           -- choice can't be inverted
-          _ -> throwIO $ UnifyError "Tried to invert choice"
+          _ -> throwIO $ UnifyError "Tried to invert non-variable application"
       -- TODO: Inverting non-reflexive coercions?
       -- (Need to extend partial renamings)
       go (_ :> SCoe {}) =
@@ -63,9 +63,8 @@ forceSp _ [] = []
 rename :: MetaVar -> PartialRenaming -> Val -> IO Tm
 rename m pren v = go pren v
   where
-    -- TODO: Double-check pren.dom is correct here?
     goSp :: PartialRenaming -> Tm -> Sp -> IO Tm
-    goSp pren t sp = goSp' pren t $ forceSp pren.dom sp
+    goSp pren t sp = goSp' pren t $ forceSp pren.cod sp
 
     goSp' :: PartialRenaming -> Tm -> Sp -> IO Tm
     goSp' _ t [] = pure t
