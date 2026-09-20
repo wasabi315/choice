@@ -7,7 +7,10 @@ import Common
 data Tm
   = Var Ix
   | Meta MetaVar
+  -- Meta-level choices
   | Choice ChoiceVar ~Tm ~Tm
+  -- Meta-level coercions
+  | Coe Ty Ty Tm
   | U
   | Pi Name Ty Ty
   | Lam Name Tm
